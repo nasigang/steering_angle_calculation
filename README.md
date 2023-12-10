@@ -29,14 +29,14 @@ This Python script implements a lane detection algorithm using OpenCV for real-t
 3. Run the script using the following command:
 
 ```python
-python lane_detection.py
-
+python steering_angle_calculation.py
+```
 
 4. The script will process the video and generate a new video (images/LaneToSteeringChallenge.avi) with lane lines and curvature information overlaid.
 
 ### Requirements
 
-* Python 3.x
+* Python 3.8
 * OpenCV library
 * numpy library
 
