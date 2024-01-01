@@ -290,7 +290,9 @@ def sobel_binary(img, sobel_kernel=7, mag_thresh=(3, 255), s_thresh=(170, 255)):
         img_b = self.region_of_interest(edge_filter)
 
         # PERSPECTIVE TRANSFORM: SKY VIEW
-        src = [480, 500], [800, 500], [img_b.shape[1] - 50, img_b.shape[0]], [150, img_b.shape[0]]
+        src = [585, 457], [700, 457], [1110, img_b.shape[0]], [220, img_b.shape[0]]
+        # src = [480, 500], [800, 500], [img_b.shape[1] - 50, img_b.shape[0]], [150, img_b.shape[0]]
+
         line_dst_offset = 200
         dst = [src[3][0] + line_dst_offset, 0], \
               [src[2][0] - line_dst_offset, 0], \
