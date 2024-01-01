@@ -9,6 +9,7 @@ This Python script implements a lane detection algorithm using OpenCV for real-t
 * **Color and Edge Detection:**
     * Converts input image to HLS color space for improved lane visibility.
     * Applies thresholding and Gaussian blur to capture lane edge information.
+    * Applies Sobel method with canny edge to capture more accurate lane
 * **Region of Interest Masking:**
     * Focuses processing on relevant areas of the image (e.g., bottom half of the road).
 * **Perspective Transformation (Bird's Eye View):**
