@@ -1,7 +1,9 @@
 import numpy as np
 import cv2
+import os 
 
 MOV_AVG_LENGTH = 5
+frame_cnt = 0
 
 class LaneDetector:
     def __init__(self):
@@ -32,6 +34,33 @@ class LaneDetector:
         canny = cv2.Canny(blur, 40, 60)
         
         return canny
+    
+    # SOBEL DETECTION
+def sobel_binary(img, sobel_kernel=7, mag_thresh=(3, 255), s_thresh=(170, 255)):
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    gray = hls[:, :, 1]
+    s_channel = hls[:, :, 2]
+    
+    # Binary matrixes creation
+    sobel_binary = np.zeros(shape=gray.shape, dtype=bool)
+    s_binary = sobel_binary
+    combined_binary = s_binary.astype(np.float32)
+    
+    # Sobel Transform
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+    sobely = 0 
+    sobel_abs = np.abs(sobelx**2 + sobely**2)
+    sobel_abs = np.uint8(255 * sobel_abs / np.max(sobel_abs))
+    sobel_binary[(sobel_abs > mag_thresh[0]) & (sobel_abs <= mag_thresh[1])] = 1
+    
+    # Threshold color channel
+    s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    
+    # Combine the two binary thresholds
+    combined_binary[(s_binary == 1) | (sobel_binary == 1)] = 1
+    combined_binary = np.uint8(255 * combined_binary / np.max(combined_binary))
+    
+    return combined_binary
 
     # REGION OF INTEREST MASKING
     def region_of_interest(self, img):
@@ -71,7 +100,6 @@ class LaneDetector:
 
         # Left-/right lane pixel indices
         left_lane_inds, right_lane_inds = [], []
-
         leftx, lefty, rightx, righty = np.array([]), np.array([]), np.array([]), np.array([])
 
         for window in range(nwindows):
@@ -80,6 +108,7 @@ class LaneDetector:
             win_xleft_low, win_xleft_high = leftx_base - margin, leftx_base + margin
             win_xright_low, win_xright_high = rightx_base - margin, rightx_base + margin
 
+            # Draw the windows on the visualization image
             cv2.rectangle(out_img, (win_xleft_low, win_y_low), (win_xleft_high, win_y_high), (0, 255, 0), 2)
             cv2.rectangle(out_img, (win_xright_low, win_y_low), (win_xright_high, win_y_high), (0, 255, 0), 2)
 
@@ -110,6 +139,9 @@ class LaneDetector:
         else:
             right_fit = np.polyfit(righty, rightx, 2)
 
+        self.draw_box(out_img, left_fit, right_fit, left_lane_inds, right_lane_inds)
+    
+
         return left_fit, right_fit
 
     
@@ -137,6 +169,72 @@ class LaneDetector:
         right_fit = np.polyfit(righty, rightx, 2)
 
         return left_fit, right_fit
+
+    def r_off_center_calculation(self, img, left_fitx, right_fitx):
+        # ----- Radius Calculation ------ #
+        img_height = img.shape[0]
+        y_eval = img_height
+
+        ym_per_pix = 30 / 720.  # meters per pixel in y dimension
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+        ploty = np.linspace(0, img_height - 1, img_height)
+        # Fit new polynomials to x,y in world space
+        left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
+        right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
+
+        # Calculate the new radii of curvature
+        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * left_fit_cr[0])
+
+        right_curverad = (
+                            (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * right_fit_cr[0])
+        radius1 = round((float(left_curverad) + float(right_curverad))/2.,2)
+        
+        if left_fitx[0] - left_fitx[-1] > 60:
+            curve_direction = 'Left Curve'
+            angle=-5729.57795/radius1
+        elif left_fitx[-1] - left_fitx[0] > 60:
+            curve_direction = 'Right Curve'
+            angle=5729.57795/radius1
+        else:
+            curve_direction = 'Straight'
+            angle=5729.57795/radius1
+
+        # ----- Off Center Calculation ------ #
+        lane_width = (right_fit[2] - left_fit[2]) * xm_per_pix
+        center = (right_fit[2] - left_fit[2]) / 2
+        off_left = (center - left_fit[2]) * xm_per_pix
+        off_right = -(right_fit[2] - center) * xm_per_pix
+        off_center = round((center - img.shape[0] / 2.) * xm_per_pix,2)
+
+        return angle, off_center
+
+    def draw_box(self, out_img, left_fit, right_fit, left_lane_inds, right_lane_inds):
+        global frame_cnt
+        ploty = np.linspace(0, out_img.shape[0] - 1, out_img.shape[0])
+        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+        
+        nonzero = out_img.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+
+        out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+        out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+        out_img[ploty.astype(int), left_fitx.astype(int)] = [0,255,255]
+        out_img[ploty.astype(int), right_fitx.astype(int)] = [255,0,255]
+
+        # Save image
+        if not os.path.exists("images/windows_lane"):
+            os.makedirs("images/windows_lane")
+
+        filename = "images/windows_lane/img{}.jpg".format(frame_cnt)
+        print(f'filename {filename}')
+        cv2.imwrite(filename, out_img)
+        frame_cnt += 1
+
 
     # Drawing lane lines on the image and calculating curvature and off-center
     def draw_lines(self, img, img_w, left_fit, right_fit, perspective):
@@ -172,56 +270,24 @@ class LaneDetector:
 
         # Combine the lane lines with the result image
         result = cv2.addWeighted(result, 1, newwarp_lines, 1, 0)
-
-        # Get image height and evaluate the y-coordinate for curvature calculation
-        img_height = img.shape[0]
-        y_eval = img_height
-
-        # Define conversion factors from pixel to meter
-        ym_per_pix = 30 / 720. 
-        xm_per_pix = 3.7 / 700 
-
-        # Generate y values for curvature calculation
-        ploty = np.linspace(0, img_height - 1, img_height)
-
-        # Fit polynomials in meters for curvature calculation
-        left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
-        right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
-
-        # Calculate curvature radii for the left and right lanes
-        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-            2 * left_fit_cr[0])
-        right_curverad = (
-                            (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-            2 * right_fit_cr[0])
-
-        # Average the curvature radii for the left and right lanes
-        radius1 = round((float(left_curverad) + float(right_curverad))/2., 2)
-
-        # Compare first and end x coordinates on the left lane to determine the curve direction
-        curve_direction = 'Left Curve' if left_fitx[0] - left_fitx[-1] > 60 else 'Right Curve' if left_fitx[-1] - left_fitx[0] > 60 else 'Straight'
-        radius = -5729.57795 / radius1 if curve_direction == 'Left Curve' else 5729.57795 / radius1 if curve_direction == 'Right Curve' else 5729.57795 / radius1
-
-        # Off-center Calculation: if Center = 0, left < 0, right > 0
-        # Length with respect to the x-axis
-        lane_width = (right_fit[2] - left_fit[2]) * xm_per_pix
-        center = (right_fit[2] - left_fit[2]) / 2
-        off_left = (center - left_fit[2]) * xm_per_pix
-        off_right = -(right_fit[2] - center) * xm_per_pix
-        off_center = round((center - img.shape[0] / 2.) * xm_per_pix, 2)
-
+        angle, off_center = self.r_off_center_calculation(img, left_fitx, right_fitx)
+        
         # Display curvature and off-center information on the image
-        text = "Angle = %s [degrees]\noffcenter = %s [m]" % (str(radius), str(off_center))
+        text = "Angle = %s [degrees]\noffcenter = %s [m]" % (str(angle), str(off_center))
         for i, line in enumerate(text.split('\n')):
             i = 550 + 20 * i
             cv2.putText(result, line, (0, i), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-        return result, radius
+        return result, angle
 
     def process_frame(self, frame):
         # EDGE DETECTION
-        edges = self.color(frame)
-        img_b = self.region_of_interest(edges)
+        canny_edges = self.color(frame)
+        sobel_edges = self.sobel_binary(canny_edges)
+        edges= cv2.addWeighted(sobel_edges,0.7,canny_edgesedges,0.3,0)
+        edge_filter=cv2.bitwise_and(edges, sobel_edges)
+
+        img_b = self.region_of_interest(edge_filter)
 
         # PERSPECTIVE TRANSFORM: SKY VIEW
         src = [480, 500], [800, 500], [img_b.shape[1] - 50, img_b.shape[0]], [150, img_b.shape[0]]
@@ -260,6 +326,21 @@ class LaneDetector:
 
         return final, degrees
 
+    def windows_video(self, img_path='./images/windows_lane'):
+        video_name = 'output_video.mp4'   # Replace with your desired output video name
+
+        images = [img for img in os.listdir(image_folder) if img.endswith(".jpg")]
+        images.sort()
+
+        frame = cv2.imread(os.path.join(image_folder, images[0]))
+        height, width, layers = frame.shape
+
+        video = cv2.VideoWriter(video_name, cv2.VideoWriter_fourcc(*'mp4v'), 1, (width, height))
+
+        for image in images:
+            video.write(cv2.imread(os.path.join(image_folder, image)))
+
+        video.release() 
 
 def main():
     lane_detector = LaneDetector()
@@ -289,6 +370,9 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
+
+    # Windows Movement
+    windows_video()
 
 
 if __name__ == "__main__":
