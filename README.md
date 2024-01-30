@@ -1,8 +1,8 @@
-# steering_angle_calculation
+# Steering_angle_calculation
 
 ## Lane Detection using OpenCV
 
-This Python script implements a lane detection algorithm using OpenCV for real-time video processing.
+This Python script implements a lane-keeping algorithm using OpenCV.
 
 ### Features
 
